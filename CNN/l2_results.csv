@@ -1,4 +1,4 @@
-# Experiment: L1 Regularization Parameter Sweep
+# Experiment: L2 Regularization Parameter Sweep
 # Batch Size: 200
 # Epochs: 150
 # -------------------------------------------
