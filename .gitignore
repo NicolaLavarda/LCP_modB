@@ -1,0 +1,11 @@
+#Ignore data directory
+*/DATA
+.csv
+
+#Ignore the environment
+*env
+
+#Ignore this file
+.*
+# I keep the .gitignore file
+!.gitignore
