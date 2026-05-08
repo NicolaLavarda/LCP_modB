@@ -1,6 +1,6 @@
 #Ignore data directory
 */DATA
-.csv
+*.csv
 
 #Ignore the environment
 *env
