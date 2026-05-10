@@ -29,7 +29,7 @@ def data_load_clean(data_file):
     return data
 
 # Train the model
-def train_model(teenmodel, num_epochs, train_dataloader):
+def train_model(teenmodel, num_epochs, train_dataloader, criterion, optimizer):
     
     # Set the model in training 
     teenmodel.train()
@@ -175,9 +175,11 @@ teenmodel = EX1Net(num_features, num_classes, p_drop)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(teenmodel.parameters(), lr=learning_rate)
 
+########################################################################
+
 # Training phase
 
-train_model(teenmodel, num_epochs, train_dataloader)
+train_model(teenmodel, num_epochs, train_dataloader, criterion, optimizer)
 
 # Test phase
 
