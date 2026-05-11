@@ -18,8 +18,6 @@ def data_load_clean(data_file):
 
     # 1. Convert ALL text columns (categorical data) into numbers
     data['gender'] = data['gender'].map({'male': 0.0, 'female': 1.0})
-    
-    # New mappings for the other text-based features
     data['platform_usage'] = data['platform_usage'].map({'Instagram': 0.0, 'TikTok': 1.0, 'Both': 2.0})
     data['social_interaction_level'] = data['social_interaction_level'].map({'low': 0.0, 'medium': 1.0, 'high': 2.0})
 
@@ -27,6 +25,21 @@ def data_load_clean(data_file):
     data = data.astype(float)
 
     return data
+
+def train_test_split(dataset: Dataset, train_ratio: float = 0.8, seed: int | None = 100):
+    
+    # Defines the number of training and test samples 
+    total_samples = len(dataset)
+    training_samples = int(train_ratio * total_samples)
+    test_samples = total_samples - training_samples
+
+    if seed is not None:
+        generator = torch.Generator().manual_seed(seed) 
+
+        return random_split(dataset, [training_samples, test_samples], generator=generator)
+    
+    return random_split(dataset, [training_samples, test_samples])
+
 
 # Train the model
 def train_model(teenmodel, num_epochs, train_dataloader, criterion, optimizer):
@@ -149,16 +162,8 @@ num_features, num_classes = len(features), 10
 # Define the dataset
 teendataset = ReportDataset(datafile, features, labels, None)
 
-# Defines the number of training and test samples 
-total_samples = len(teendataset)
-training_samples = int(0.8 * total_samples)
-test_samples = total_samples - training_samples
-
-# Sets the seed (if we want we can remove it)
-generator = torch.Generator().manual_seed(100) 
-
-# Splits the dataset into training and test sets
-training_set, test_set = random_split(teendataset, [training_samples, test_samples], generator)
+# Split training and test datasets
+training_set, test_set = train_test_split(teendataset)
 
 # Defines the dataloader for both training and test sets
 train_dataloader = DataLoader(dataset=training_set, batch_size=40, shuffle=True)
