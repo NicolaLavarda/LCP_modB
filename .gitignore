@@ -9,3 +9,5 @@
 .*
 # I keep the .gitignore file
 !.gitignore
+
+__pycache__
