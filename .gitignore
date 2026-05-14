@@ -10,5 +10,4 @@
 # I keep the .gitignore file
 !.gitignore
 
-# Ignore my notebook (only ment for testing)
-Siloi_report/randomtests.ipynb
+__pycache__
