@@ -1,9 +1,12 @@
+from matplotlib.pyplot import step
 import numpy as np
 import pandas as pd
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
+import optuna
 
 # --- STEP 1: PREPROCESSING ---
 def data_load_clean(data_file):
@@ -33,15 +36,15 @@ class GPADataset(Dataset):
     def __len__(self): return len(self.labels)
     def __getitem__(self, index): return self.samples[index], self.labels[index]
 
-# --- STEP 3: DEEP REGRESSION NETWORK ---
+# --- STEP 3.1: DEEP REGRESSION NETWORK - PYTORCH ---
 class OptimizedGPANet(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, p_drop):         # Now the dropout is a parameter (Modified 14/05)
         super(OptimizedGPANet, self).__init__()
         self.net = nn.Sequential(
             nn.Linear(input_size, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(p_drop),
             nn.Linear(128, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
@@ -50,6 +53,53 @@ class OptimizedGPANet(nn.Module):
             nn.Linear(32, 1)
         )
     def forward(self, x): return self.net(x)
+
+def train_model(model, num_epochs, train_loader, optimizer, criterion):
+    print("--- Final Model: Estimating Impact on Academic Performance ---")
+    model.train()
+    for epoch in range(num_epochs):
+        for s, l in train_loader:
+            optimizer.zero_grad()
+            loss = criterion(model(s), l)
+            loss.backward()
+            optimizer.step()
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+
+# 2. Use Optuna to instantiate your class
+
+def objective(trial, num_feat, train_loader, test_loader):
+    # Suggest hyperparameters
+    # h_dim = trial.suggest_int("hidden_dim", 32, 256, step=32)
+    drop = trial.suggest_float("dropout_rate", 0.0, 0.2, step=0.1)
+    lr = trial.suggest_float("lr", 1e-6, 1e-1, log=True)
+
+    # Instantiate your model class with suggested values
+    model = OptimizedGPANet(input_size=num_feat, p_drop=drop)
+    
+    # Standard training logic goes here...
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    # Loss function
+    criterion = nn.MSELoss()
+
+    # Train model
+    train_model(model, 250, train_loader, optimizer, criterion)
+
+    # Evaluate model
+    test_loss = 0.0
+    model.eval() 
+    
+    with torch.no_grad():
+        for s, l in test_loader:
+            batch_loss = criterion(model(s), l)
+            test_loss += batch_loss.item() # Extract float to prevent memory leak
+            
+    # Calculate the average test loss across all batches
+    avg_test_loss = test_loss / len(test_loader)
+
+    return avg_test_loss
+
 
 # --- STEP 4: MAIN EXECUTION ---
 if __name__ == "__main__":
@@ -61,26 +111,27 @@ if __name__ == "__main__":
                 "stress_level", "anxiety_level", "addiction_level"]
     target = "academic_performance"
 
+    # Defines and splits traning and testing datasets
     dataset = GPADataset(path, features, target)
     train_set, test_set = random_split(dataset, [960, 240], generator=torch.Generator().manual_seed(42))
     
+    # Load the datasets
     train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=32, shuffle=False)
 
-    model = OptimizedGPANet(len(features))
+    # 3. Run the study
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=20)
+
+
+    p_drop = 0.2
+
+    model = OptimizedGPANet(len(features), p_drop)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
 
-    print("--- Final Model: Estimating Impact on Academic Performance ---")
-    model.train()
-    for epoch in range(250):
-        for s, l in train_loader:
-            optimizer.zero_grad()
-            loss = criterion(model(s), l)
-            loss.backward()
-            optimizer.step()
-        if (epoch + 1) % 50 == 0:
-            print(f"Epoch [{epoch+1}/250], Loss: {loss.item():.4f}")
+    # Model training
+    train_model(250)
 
     # Evaluation
     model.eval()
