@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 import optuna
+import os
 
 # --- STEP 1: PREPROCESSING ---
 def data_load_clean(data_file):
@@ -54,6 +55,7 @@ class OptimizedGPANet(nn.Module):
         )
     def forward(self, x): return self.net(x)
 
+# Function to train the model
 def train_model(model, num_epochs, train_loader, optimizer, criterion):
     print("--- Final Model: Estimating Impact on Academic Performance ---")
     model.train()
@@ -66,15 +68,14 @@ def train_model(model, num_epochs, train_loader, optimizer, criterion):
         if (epoch + 1) % 10 == 0:
             print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
 
-# 2. Use Optuna to instantiate your class
-
-def objective(trial, num_feat, train_loader, test_loader):
+# Function to be optimized using optuna
+def objective(trial):
     # Suggest hyperparameters
-    # h_dim = trial.suggest_int("hidden_dim", 32, 256, step=32)
     drop = trial.suggest_float("dropout_rate", 0.0, 0.2, step=0.1)
     lr = trial.suggest_float("lr", 1e-6, 1e-1, log=True)
 
     # Instantiate your model class with suggested values
+    num_feat = 9
     model = OptimizedGPANet(input_size=num_feat, p_drop=drop)
     
     # Standard training logic goes here...
@@ -84,7 +85,7 @@ def objective(trial, num_feat, train_loader, test_loader):
     criterion = nn.MSELoss()
 
     # Train model
-    train_model(model, 250, train_loader, optimizer, criterion)
+    train_model(model, 150, train_loader, optimizer, criterion)
 
     # Evaluate model
     test_loss = 0.0
@@ -98,7 +99,30 @@ def objective(trial, num_feat, train_loader, test_loader):
     # Calculate the average test loss across all batches
     avg_test_loss = test_loss / len(test_loader)
 
+    # This means that optuna will optimize with respect to the mean test loss
     return avg_test_loss
+
+def find_best_par(objective):
+    # Create a local SQLite database to store the history
+    storage_name = "sqlite:////home/matteocalcagni/Desktop/LCP_modB/GPANet_study.db"
+    path = "/home/matteocalcagni/Desktop/LCP_modB/GPANet_study.db"
+    
+    if os.path.isfile(path):
+        print("removing previous study db...")
+        os.remove(path)
+    else:
+        print("creating new study db...")
+
+    study = optuna.create_study(
+        direction="minimize", 
+        study_name="gpa_model_tuning", 
+        storage=storage_name,
+        load_if_exists=True # Resumes the study if you stop and restart it!
+    )
+
+    study.optimize(objective, n_trials=20)
+
+    return study.best_params
 
 
 # --- STEP 4: MAIN EXECUTION ---
@@ -119,15 +143,16 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=32, shuffle=False)
 
-    # 3. Run the study
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=20)
+    # Finds best parameters
+    best_parameters = find_best_par(objective)
+    print(best_parameters)
 
+    # Sets the definitive parameters 
+    p_drop, learning_rate = best_parameters['dropout_rate'], best_parameters['lr'] 
 
-    p_drop = 0.2
-
+    # Defines the definitive model
     model = OptimizedGPANet(len(features), p_drop)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
 
     # Model training
@@ -140,7 +165,7 @@ if __name__ == "__main__":
         for s, l in test_loader:
             preds = model(s)
             abs_err += torch.abs(preds - l).sum().item()
-    
+
     mae = abs_err / 240
     avg_gpa = pd.read_csv(path)[target].mean()
     accuracy = (1 - (mae / avg_gpa)) * 100
@@ -150,3 +175,5 @@ if __name__ == "__main__":
     print(f"Mean Absolute Error: {mae:.4f}")
     print(f"Relative Accuracy: {accuracy:.2f} %")
     print(f"\nConclusion: The model can predict student performance with ~81% accuracy using social habits.")
+
+    

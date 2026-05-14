@@ -11,3 +11,6 @@
 !.gitignore
 
 __pycache__
+
+# Ignore optuna dbs
+*.db
