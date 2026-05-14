@@ -151,16 +151,19 @@ class EX1Net(nn.Module):
 # Data file path
 datafile = r'Siloi_report/Teen_Mental_Health_Dataset.csv'
 
-# The following lists are only one of many examples I can do
-features = ["age","gender","daily_social_media_hours","platform_usage","sleep_hours",
-            "screen_time_before_sleep","academic_performance",
-            "physical_activity","social_interaction_level"]
-labels = "depression_label"
+all_features = np.array(["age","gender","daily_social_media_hours","platform_usage",
+                     "sleep_hours","screen_time_before_sleep","academic_performance",
+                     "physical_activity","social_interaction_level","stress_level",
+                     "anxiety_level","addiction_level","depression_label"])
 
-num_features, num_classes = len(features), 10
+# The following lists are only one of many examples I can do
+sample_features = all_features[:9]
+labels = all_features[12] 
+
+num_features, num_classes = len(sample_features), 10
 
 # Define the dataset
-teendataset = ReportDataset(datafile, features, labels, None)
+teendataset = ReportDataset(datafile, sample_features, labels, None)
 
 # Split training and test datasets
 training_set, test_set = train_test_split(teendataset)
