@@ -1,64 +1,73 @@
+# "Data handling and visualization" libraries
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# "Modeling" libraries
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import scipy.special
+
+# "Evaluation and hyperparameter optimization" libraries
 import optuna
-import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import classification_report, confusion_matrix
+
 
 # Global paths to dataset and model storage
-DATA_PATH = 'Teen_Mental_Health_Dataset.csv'
-MODEL_DB_PATH = "GPANet_study.db"
+DATA_PATH = 'data.csv'
+MODEL_DB_PATH = 'cancer_study.db'
 
+# Loss function for binary classification (logistic regression)
+CRITERION = nn.BCEWithLogitsLoss()
 
 # --- STEP 1: PREPROCESSING ---
 def data_load_clean(data_file):
     data = pd.read_csv(data_file) 
     # Map categories to numbers
-    data['gender'] = data['gender'].map({'male': 0.0, 'female': 1.0})
-    data['platform_usage'] = data['platform_usage'].map({'Instagram': 0.0, 'TikTok': 1.0, 'Both': 2.0})
-    data['social_interaction_level'] = data['social_interaction_level'].map({'low': 0.0, 'medium': 1.0, 'high': 2.0})
-
-    # Normalize continuous features (but NOT the target: academic_performance)
-    features = ["age", "daily_social_media_hours", "sleep_hours", 
-                "screen_time_before_sleep", "physical_activity", 
-                "stress_level", "anxiety_level", "addiction_level"]
+    # Benign (B) = 0, Malignant (M) = 1
+    data['diagnosis'] = data['diagnosis'].map({'B': 0, 'M': 1.0})
     
-    for col in features:
-        if col in data.columns:
-            data[col] = (data[col] - data[col].mean()) / data[col].std()
-
     return data
 
 # --- STEP 2: REGRESSION DATASET ---
-class GPADataset(Dataset):
-    def __init__(self, data_file, features, target):
-        df = data_load_clean(data_file)
-        self.samples = torch.tensor(df[features].values, dtype=torch.float32)
-        self.labels = torch.tensor(df[target].values, dtype=torch.float32).view(-1, 1)
+class CancerDataset(Dataset):
+    def __init__(self, X, y):
+        self.samples = torch.tensor(X, dtype=torch.float32)
+        self.labels = torch.tensor(y, dtype=torch.float32).view(-1, 1)
     def __len__(self): return len(self.labels)
     def __getitem__(self, index): return self.samples[index], self.labels[index]
+
 
 # --- STEP 3.1: DEEP REGRESSION NETWORK - PYTORCH ---
 class OptimizedGPANet(nn.Module):
     def __init__(self, input_size, p_drop):         
         super(OptimizedGPANet, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_size, 32),
+            # First layer
+            nn.Linear(input_size, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(p_drop),
+            # Second layer
+            nn.Linear(64, 32),
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.Dropout(p_drop),
+            # Third layer
             nn.Linear(32, 16),
             nn.BatchNorm1d(16),
             nn.ReLU(),
             nn.Dropout(p_drop),
+            # Output layer
             nn.Linear(16, 1)
-        )
+            )
     def forward(self, x): return self.net(x)
 
 # Function to train the model with early stopping
@@ -109,24 +118,25 @@ def train_model(model, num_epochs, train_loader, test_loader, optimizer, criteri
 
 # Function to be optimized using optuna
 def objective(trial):
-    drop = trial.suggest_float("dropout_rate", 0.0, 0.2, step=0.1)
+    
+    # Parameters to optimize
+    drop = trial.suggest_float("dropout_rate", 0.0, 0.5, step=0.1)
     lr = trial.suggest_float("lr", 1e-6, 1e-1, log=True)
 
-    num_feat = 9
+    num_feat = len(features)
     model = OptimizedGPANet(input_size=num_feat, p_drop=drop)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
 
     train_model(model, num_epochs=150, train_loader=train_loader, test_loader=test_loader, 
-                optimizer=optimizer, criterion=criterion, verbose=False)
+                optimizer=optimizer, criterion=CRITERION, verbose=False)
 
     test_loss = 0.0
     model.eval() 
     
     with torch.no_grad():
         for s, l in test_loader:
-            batch_loss = criterion(model(s), l)
+            batch_loss = CRITERION(model(s), l)
             test_loss += batch_loss.item() 
             
     avg_test_loss = test_loss / len(test_loader)
@@ -148,24 +158,33 @@ def find_best_par(objective, path=MODEL_DB_PATH):
         load_if_exists=True 
     )
 
-    study.optimize(objective, n_trials=20)
+    study.optimize(objective, n_trials=40)
     return study.best_params
 
 
 # --- STEP 4: MAIN EXECUTION ---
 if __name__ == "__main__":
     
-    # Impact features
-    features = ["age", "gender", "daily_social_media_hours", "sleep_hours", 
-                "screen_time_before_sleep", "physical_activity", 
-                "stress_level", "anxiety_level", "addiction_level"]
-    target = "academic_performance"
+    # Load and preprocess the data
+    df = data_load_clean(DATA_PATH)
 
-    # Defines and splits traning and testing datasets
-    dataset = GPADataset(DATA_PATH, features, target)
-    train_set, test_set = random_split(dataset, [960, 240], generator=torch.Generator().manual_seed(42))
-    
-    # Load the datasets
+    # Define features and target
+    features = df.columns[2:-1].tolist()
+    target = 'diagnosis'
+
+    X = df[features].values
+    y = df[target].values
+
+    # Train-test split and scaling
+    test_size = 0.2
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    # Create and load datasets
+    train_set = CancerDataset(X_train, y_train)
+    test_set = CancerDataset(X_test, y_test)
     train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=32, shuffle=False)
 
@@ -186,11 +205,10 @@ if __name__ == "__main__":
     # Defines the definitive model
     model = OptimizedGPANet(len(features), p_drop)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
 
     # Model training
     train_model(model=model, num_epochs=250, train_loader=train_loader, 
-                test_loader=test_loader, optimizer=optimizer, criterion=criterion)
+                test_loader=test_loader, optimizer=optimizer, criterion=CRITERION, patience=20, verbose=True)
 
     # Model evaluation
     model.eval()
@@ -208,39 +226,12 @@ if __name__ == "__main__":
     all_labels_np = torch.cat(all_labels).numpy()
 
     # Metrics calculation
-    mae = mean_absolute_error(all_labels_np, all_preds_np)
-    mse = mean_squared_error(all_labels_np, all_preds_np)
-    rmse = np.sqrt(mse)
-    r2 = r2_score(all_labels_np, all_preds_np)
-
-    avg_gpa = pd.read_csv(DATA_PATH)[target].mean()
-    accuracy = (1 - (mae / avg_gpa)) * 100
-
+    threshold = 0.5
+    probs = scipy.special.expit(all_preds_np)  # Convert logits to probabilities
+    metrics = classification_report(all_labels_np, (probs > threshold).astype(int), output_dict=True)
 
     # Results presentation
-    print(f"\n--- FINAL RESULTS ---")
-    print(f"Target: {target}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
-    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-    print(f"R-squared (R2): {r2:.4f}")
-    print(f"Relative Accuracy: {accuracy:.2f} %")
-
-
-    # Scatter plot of real vs predicted values
-    plt.figure(figsize=(8, 6))
-    plt.scatter(all_labels_np, all_preds_np, alpha=0.5, color='blue', label='Model Predictions')
-    min_val = min(all_labels_np.min(), all_preds_np.min())
-    max_val = max(all_labels_np.max(), all_preds_np.max())
-    plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--', label='Perfect Prediction')
-    
-    plt.title('Academic Performances: Real vs Predicted')
-    plt.xlabel('GPA Real')
-    plt.ylabel('GPA Predicted')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('scatter_plot.png')
-    print("Scatter plot saved as 'scatter_plot.png'.")
+    print(f"Classification report: {metrics}\n")
 
 
     # Feature correlation heatmap
