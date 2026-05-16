@@ -51,22 +51,22 @@ class OptimizedGPANet(nn.Module):
         super(OptimizedGPANet, self).__init__()
         self.net = nn.Sequential(
             # First layer
-            nn.Linear(input_size, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Dropout(p_drop),
-            # Second layer
-            nn.Linear(64, 32),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
-            nn.Dropout(p_drop),
-            # Third layer
-            nn.Linear(32, 16),
+            nn.Linear(input_size, 16),
             nn.BatchNorm1d(16),
             nn.ReLU(),
             nn.Dropout(p_drop),
+            # Second layer
+            nn.Linear(16, 8),
+            nn.BatchNorm1d(8),
+            nn.ReLU(),
+            nn.Dropout(p_drop),
+            # Third layer
+            nn.Linear(8, 4),
+            nn.BatchNorm1d(4),
+            nn.ReLU(),
+            nn.Dropout(p_drop),
             # Output layer
-            nn.Linear(16, 1)
+            nn.Linear(4, 1)
             )
     def forward(self, x): return self.net(x)
 
@@ -110,6 +110,7 @@ def train_model(model, num_epochs, train_loader, test_loader, optimizer, criteri
         if patience_counter >= patience:
             if verbose:
                 print(f"Triggered early stopping at epoch {epoch+1}!")
+                print(f"Best Validation Loss: {best_val_loss:.4f}")
             break
             
     return best_val_loss
@@ -153,7 +154,7 @@ def find_best_par(objective, path=MODEL_DB_PATH):
 
     study = optuna.create_study(
         direction="minimize", 
-        study_name="gpa_model_tuning", 
+        study_name="cancer_model_tuning", 
         storage=storage_name,
         load_if_exists=True 
     )
@@ -195,7 +196,7 @@ if __name__ == "__main__":
         print(f"\nBest hyperparameters found: {best_parameters}\n")
     else:
         db = optuna.storages.RDBStorage(url=f"sqlite:///{MODEL_DB_PATH}")
-        study = optuna.load_study(study_name="gpa_model_tuning", storage=db)
+        study = optuna.load_study(study_name="cancer_model_tuning", storage=db)
         best_parameters = study.best_params
         print(f"\nBest hyperparameters loaded from previous study: {best_parameters}\n")
 
@@ -230,17 +231,50 @@ if __name__ == "__main__":
     probs = scipy.special.expit(all_preds_np)  # Convert logits to probabilities
     metrics = classification_report(all_labels_np, (probs > threshold).astype(int), output_dict=True)
 
-    # Results presentation
-    print(f"Classification report: {metrics}\n")
+    # Results presentation as a bar chart
+    report_df = pd.DataFrame(metrics).transpose()
+    df_plot = report_df.loc[['0.0', '1.0'], ['precision', 'recall', 'f1-score']]
 
+    # Blue = Benign (0), Red = Malignant (1)
+    ax = df_plot.T.plot(kind='bar', figsize=(10, 6), color=['#4C72B0', '#C44E52'], edgecolor='black')
 
-    # Feature correlation heatmap
-    df_clean = data_load_clean(DATA_PATH)
-    plt.figure(figsize=(10, 8))
-    correlation_matrix = df_clean[features + [target]].corr()
-    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", vmin=-1, vmax=1)
-    
-    plt.title("Correlation Heatmap of Features and Target")
+    # Aesthetics
+    plt.title('Performance Metrics by Class (Breast Cancer)', fontsize=16, fontweight='bold')
+    plt.xlabel('Metrics', fontsize=12)
+    plt.ylabel('Score', fontsize=12)
+    plt.xticks(rotation=0, fontsize=12)
+
+    # Zoom in on the y-axis to better visualize differences in performance
+    plt.ylim(0.85, 1.02) 
+    plt.legend(['Benign (0)', 'Malignant (1)'], title='Diagnosis', loc='lower right', fontsize=11)
+
+    # Numerical annotations on bars
+    for p in ax.patches:
+        ax.annotate(f"{p.get_height():.3f}", 
+                    (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha='center', va='bottom', fontsize=10, color='black', xytext=(0, 5), 
+                    textcoords='offset points')
+
     plt.tight_layout()
-    plt.savefig('correlation_heatmap.png')
-    print("Correlation heatmap saved as 'correlation_heatmap.png'.")
+    plt.savefig('classification_report_barchart.png', dpi=300)
+
+
+    # Confusion matrix calculation and plot
+    cm = confusion_matrix(all_labels_np, (probs > threshold).astype(int))
+    plt.figure(figsize=(8, 6))
+
+    # Heatmap with annotations, color scheme, and custom labels
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False, 
+                xticklabels=['Benign (0)', 'Malignant (1)'], 
+                yticklabels=['Benign (0)', 'Malignant (1)'],
+                annot_kws={"size": 16, "weight": "bold"})
+
+    # Titles and labels with improved aesthetics
+    plt.title('Confusion Matrix', fontsize=16, fontweight='bold', pad=15)
+    plt.ylabel('Actual Diagnosis (True)', fontsize=12, fontweight='bold')
+    plt.xlabel('Predicted Diagnosis', fontsize=12, fontweight='bold')
+    plt.text(0.5, 0.2, 'True Negatives', ha='center', va='center', color='gray', fontsize=9)
+    plt.text(1.5, 1.2, 'True Positives', ha='center', va='center', color='white', fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig('confusion_matrix.png', dpi=300)
