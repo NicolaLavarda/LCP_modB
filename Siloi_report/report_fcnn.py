@@ -71,7 +71,7 @@ class OptimizedGPANet(nn.Module):
     def forward(self, x): return self.net(x)
 
 # Function to train the model with early stopping
-def train_model(model, num_epochs, train_loader, test_loader, optimizer, criterion, patience=20, verbose=True, save_path=None):
+def train_model(model, num_epochs, train_loader, test_loader, optimizer, criterion, patience=30, verbose=True, save_path=None):
     if verbose:
         print(f"--- Training started (Max Epochs: {num_epochs}, Patience: {patience}) ---")
         
@@ -138,18 +138,18 @@ def objective(trial):
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    best_val_loss, history = train_model(model, num_epochs=150, train_loader=train_loader, test_loader=test_loader, 
+    best_val_loss, history = train_model(model, num_epochs=150, train_loader=train_loader_opt, test_loader=val_loader_opt, 
                                          optimizer=optimizer, criterion=CRITERION, verbose=False)
 
     test_loss = 0.0
     model.eval() 
     
     with torch.no_grad():
-        for s, l in test_loader:
+        for s, l in test_loader_opt:
             batch_loss = CRITERION(model(s), l)
             test_loss += batch_loss.item() 
             
-    avg_test_loss = test_loss / len(test_loader)
+    avg_test_loss = test_loss / len(test_loader_opt)
     return avg_test_loss
 
 def find_best_par(objective, path=MODEL_DB_PATH):
@@ -185,7 +185,26 @@ if __name__ == "__main__":
     X = df[features].values
     y = df[target].values
 
-    # Train-test split and scaling
+    # --- 1. Data split for hyperparameter tuning (Training, Validation, Test) ---
+    # 60% train, 20% validation, 20% test
+    X_train_val, X_test_opt, y_train_val, y_test_opt = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train_opt, X_val_opt, y_train_opt, y_val_opt = train_test_split(X_train_val, y_train_val, test_size=0.25, random_state=42)
+    
+    scaler_opt = StandardScaler()
+    X_train_opt = scaler_opt.fit_transform(X_train_opt)
+    X_val_opt = scaler_opt.transform(X_val_opt)
+    X_test_opt = scaler_opt.transform(X_test_opt)
+
+    train_set_opt = CancerDataset(X_train_opt, y_train_opt)
+    val_set_opt = CancerDataset(X_val_opt, y_val_opt)
+    test_set_opt = CancerDataset(X_test_opt, y_test_opt)
+
+    train_loader_opt = DataLoader(train_set_opt, batch_size=32, shuffle=True)
+    val_loader_opt = DataLoader(val_set_opt, batch_size=32, shuffle=False)
+    test_loader_opt = DataLoader(test_set_opt, batch_size=32, shuffle=False)
+
+    # --- 2. Data split for final best model evaluation (Training and Test only) ---
+    # 80% train, 20% test
     test_size = 0.2
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
     scaler = StandardScaler()
@@ -218,7 +237,7 @@ if __name__ == "__main__":
 
     # Model training and saving best weights
     best_val_loss, history = train_model(model=model, num_epochs=250, train_loader=train_loader, 
-                                         test_loader=test_loader, optimizer=optimizer, criterion=CRITERION, patience=30, verbose=True, save_path='best_model.pth')
+                                         test_loader=test_loader, optimizer=optimizer, criterion=CRITERION, patience=50, verbose=True, save_path='best_model.pth')
 
     # Load best model weights for evaluation
     if os.path.exists('best_model.pth'):

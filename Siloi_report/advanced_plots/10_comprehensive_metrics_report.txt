@@ -13,9 +13,9 @@ ADVANCED EVALUATION REPORT - BREAST CANCER CLASSIFICATION
 
 2. PROBABILISTIC AND SEPARATION METRICS
 --------------------------------------------------------------------
-- ROC-AUC (Area Under ROC Curve)    : 0.9987  (Global discrimination capability)
-- PR-AUC / Average Precision (AP)   : 0.9979  (Performance on imbalanced datasets)
-- Brier Score Loss                  : 0.0190  (Mean squared error of probabilities, 0=perfect)
+- ROC-AUC (Area Under ROC Curve)    : 0.9967  (Global discrimination capability)
+- PR-AUC / Average Precision (AP)   : 0.9953  (Performance on imbalanced datasets)
+- Brier Score Loss                  : 0.0216  (Mean squared error of probabilities, 0=perfect)
 
 3. CONFUSION MATRIX (Sample Breakdown)
 --------------------------------------------------------------------
@@ -29,7 +29,7 @@ Actual Malignant (1)        1 (FN)                42 (TP)
   (such as radius, perimeter, and area) exhibit strong linear correlation with diagnosis.
   The PCA projection highlights clear linear and non-linear separability between the two classes,
   justifying the excellent performance of the model.
-- Discriminative Power: The high ROC-AUC (0.9987) and PR-AUC (0.9979) values
+- Discriminative Power: The high ROC-AUC (0.9967) and PR-AUC (0.9953) values
   demonstrate that the FCNN neural network learned extremely robust representations,
   minimizing both false positives and false negatives.
 - Calibration: The calibration curve indicates that the probabilities output by the network
