@@ -1,0 +1,40 @@
+====================================================================
+ADVANCED EVALUATION REPORT - BREAST CANCER CLASSIFICATION
+====================================================================
+
+1. GLOBAL PERFORMANCE METRICS (Threshold 0.5)
+--------------------------------------------------------------------
+- Global Accuracy                   : 0.9737
+- Precision (Malignant)             : 0.9545  (Probability that a predicted malignant is actual)
+- Recall / Sensitivity (Malignant)  : 0.9767  (Ability to detect malignant tumors)
+- Specificity (Benign)              : 0.9718  (Ability to detect benign tumors)
+- Negative Predictive Value (NPV)   : 0.9857  (Probability that a predicted benign is actual)
+- F1-Score (Malignant)              : 0.9655  (Harmonic mean of Precision and Recall)
+
+2. PROBABILISTIC AND SEPARATION METRICS
+--------------------------------------------------------------------
+- ROC-AUC (Area Under ROC Curve)    : 0.9987  (Global discrimination capability)
+- PR-AUC / Average Precision (AP)   : 0.9979  (Performance on imbalanced datasets)
+- Brier Score Loss                  : 0.0190  (Mean squared error of probabilities, 0=perfect)
+
+3. CONFUSION MATRIX (Sample Breakdown)
+--------------------------------------------------------------------
+                  Predicted Benign (0)    Predicted Malignant (1)
+Actual Benign (0)          69 (TN)                 2 (FP)
+Actual Malignant (1)        1 (FN)                42 (TP)
+
+4. DISCUSSION AND RESULTS INTERPRETATION
+--------------------------------------------------------------------
+- Dataset Analysis: Exploratory Data Analysis (EDA) shows that morphological features
+  (such as radius, perimeter, and area) exhibit strong linear correlation with diagnosis.
+  The PCA projection highlights clear linear and non-linear separability between the two classes,
+  justifying the excellent performance of the model.
+- Discriminative Power: The high ROC-AUC (0.9987) and PR-AUC (0.9979) values
+  demonstrate that the FCNN neural network learned extremely robust representations,
+  minimizing both false positives and false negatives.
+- Calibration: The calibration curve indicates that the probabilities output by the network
+  are highly reliable and accurately reflect the true clinical confidence of the model.
+- False Negatives (FN): In the oncological medical context, minimizing FN (1)
+  is the absolute priority. With a Recall of 0.9767 and an NPV of 0.9857, the model
+  offers top-tier guarantees for diagnostic screening.
+====================================================================
