@@ -71,21 +71,25 @@ class OptimizedGPANet(nn.Module):
     def forward(self, x): return self.net(x)
 
 # Function to train the model with early stopping
-def train_model(model, num_epochs, train_loader, test_loader, optimizer, criterion, patience=10, verbose=True):
+def train_model(model, num_epochs, train_loader, test_loader, optimizer, criterion, patience=30, verbose=True, save_path=None):
     if verbose:
         print(f"--- Training started (Max Epochs: {num_epochs}, Patience: {patience}) ---")
         
     best_val_loss = float('inf')
     patience_counter = 0
+    history = {'train_loss': [], 'val_loss': []}
 
     for epoch in range(num_epochs):
         # Training the model
         model.train()
+        train_loss = 0.0
         for s, l in train_loader:
             optimizer.zero_grad()
             loss = criterion(model(s), l)
             loss.backward()
             optimizer.step()
+            train_loss += loss.item()
+        avg_train_loss = train_loss / len(train_loader)
 
         # Validate the model on the validation set
         model.eval()
@@ -95,16 +99,21 @@ def train_model(model, num_epochs, train_loader, test_loader, optimizer, criteri
                 val_loss += criterion(model(s), l).item()
         avg_val_loss = val_loss / len(test_loader)
 
+        history['train_loss'].append(avg_train_loss)
+        history['val_loss'].append(avg_val_loss)
+
         # Early stopping check
         if avg_val_loss < best_val_loss:
             # Model is improving, save the best loss and reset patience counter
             best_val_loss = avg_val_loss
             patience_counter = 0  
+            if save_path:
+                torch.save(model.state_dict(), save_path)
         else:
             patience_counter += 1 # Model is not improving, increment patience counter
 
         if verbose and (epoch + 1) % 10 == 0:
-            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {loss.item():.4f}, Val Loss: {avg_val_loss:.4f}")
+            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
         # Patience check to stop training if no improvement
         if patience_counter >= patience:
@@ -113,7 +122,7 @@ def train_model(model, num_epochs, train_loader, test_loader, optimizer, criteri
                 print(f"Best Validation Loss: {best_val_loss:.4f}")
             break
             
-    return best_val_loss
+    return best_val_loss, history
 
 
 
@@ -129,18 +138,18 @@ def objective(trial):
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    train_model(model, num_epochs=150, train_loader=train_loader, test_loader=test_loader, 
-                optimizer=optimizer, criterion=CRITERION, verbose=False)
+    best_val_loss, history = train_model(model, num_epochs=150, train_loader=train_loader_opt, test_loader=val_loader_opt, 
+                                         optimizer=optimizer, criterion=CRITERION, verbose=False)
 
     test_loss = 0.0
     model.eval() 
     
     with torch.no_grad():
-        for s, l in test_loader:
+        for s, l in test_loader_opt:
             batch_loss = CRITERION(model(s), l)
             test_loss += batch_loss.item() 
             
-    avg_test_loss = test_loss / len(test_loader)
+    avg_test_loss = test_loss / len(test_loader_opt)
     return avg_test_loss
 
 def find_best_par(objective, path=MODEL_DB_PATH):
@@ -176,7 +185,26 @@ if __name__ == "__main__":
     X = df[features].values
     y = df[target].values
 
-    # Train-test split and scaling
+    # --- 1. Data split for hyperparameter tuning (Training, Validation, Test) ---
+    # 60% train, 20% validation, 20% test
+    X_train_val, X_test_opt, y_train_val, y_test_opt = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train_opt, X_val_opt, y_train_opt, y_val_opt = train_test_split(X_train_val, y_train_val, test_size=0.25, random_state=42)
+    
+    scaler_opt = StandardScaler()
+    X_train_opt = scaler_opt.fit_transform(X_train_opt)
+    X_val_opt = scaler_opt.transform(X_val_opt)
+    X_test_opt = scaler_opt.transform(X_test_opt)
+
+    train_set_opt = CancerDataset(X_train_opt, y_train_opt)
+    val_set_opt = CancerDataset(X_val_opt, y_val_opt)
+    test_set_opt = CancerDataset(X_test_opt, y_test_opt)
+
+    train_loader_opt = DataLoader(train_set_opt, batch_size=32, shuffle=True)
+    val_loader_opt = DataLoader(val_set_opt, batch_size=32, shuffle=False)
+    test_loader_opt = DataLoader(test_set_opt, batch_size=32, shuffle=False)
+
+    # --- 2. Data split for final best model evaluation (Training and Test only) ---
+    # 80% train, 20% test
     test_size = 0.2
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
     scaler = StandardScaler()
@@ -207,9 +235,26 @@ if __name__ == "__main__":
     model = OptimizedGPANet(len(features), p_drop)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    # Model training
-    train_model(model=model, num_epochs=250, train_loader=train_loader, 
-                test_loader=test_loader, optimizer=optimizer, criterion=CRITERION, patience=20, verbose=True)
+    # Model training and saving best weights
+    best_val_loss, history = train_model(model=model, num_epochs=250, train_loader=train_loader, 
+                                         test_loader=test_loader, optimizer=optimizer, criterion=CRITERION, patience=50, verbose=True, save_path='best_model.pth')
+
+    # Load best model weights for evaluation
+    if os.path.exists('best_model.pth'):
+        model.load_state_dict(torch.load('best_model.pth'))
+
+    # Save learning curve plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(history['train_loss'], label='Train Loss', color='#4C72B0', linewidth=2)
+    plt.plot(history['val_loss'], label='Validation Loss', color='#C44E52', linewidth=2)
+    plt.title('Model Learning Curves (Train vs Validation Loss)', fontsize=16, fontweight='bold')
+    plt.xlabel('Epochs', fontsize=12)
+    plt.ylabel('Loss (BCEWithLogitsLoss)', fontsize=12)
+    plt.legend(loc='upper right', fontsize=11)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.savefig('learning_curve.png', dpi=300)
+    plt.close()
 
     # Model evaluation
     model.eval()
@@ -257,7 +302,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.savefig('classification_report_barchart.png', dpi=300)
-
+    plt.close()
 
     # Confusion matrix calculation and plot
     cm = confusion_matrix(all_labels_np, (probs > threshold).astype(int))
@@ -278,3 +323,4 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.savefig('confusion_matrix.png', dpi=300)
+    plt.close()
